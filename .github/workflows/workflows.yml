@@ -1,0 +1,78 @@
+name: Deploy Dockerhub
+
+on:
+  push:
+    branches:
+      - in-dev
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 17
+        uses: actions/checkout@v2
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Restore Maven Package
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('/*.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image
+        run: docker build -t loveara/shi:latest .
+
+      - name: Push Docker image to Docker Hub
+        run: docker push loveara/shi:latest
+
+      - name: Deploy Docker Container on AWS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.AWS_HOST }}      # Your AWS instance IP from secrets
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_KEY }}        # SSH private key from secrets
+          port: 22                           # SSH port (default 22)
+          script: |
+            # Check if Docker is installed
+            if ! command -v docker &> /dev/null; then
+              echo "Docker not found. Installing Docker..."
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+            else
+              echo "Docker is already installed."
+            fi
+            echo "Pulling latest Docker image from Docker Hub..."
+            sudo docker pull loveara/shi:latest
+            
+            if [ $(docker ps -q -f name=affectionate_pare) ]; then
+              echo "Stopping existing container..."
+              sudo docker stop affectionate_pare
+              sudo docker rm affectionate_pare
+            
+            else
+              echo "No existing container found, creating a new one..."
+            
+            fi
+            
+            echo "Running the new container..."
+            sudo docker run -d -p 8084:8084 --name affectionate_pare loveara/shi:latest
+            echo "Container deployed successfully!"
+            
+            echo "Listing running containers..."
+            sudo docker ps
